@@ -1,0 +1,328 @@
+---
+title: "Two-level chord diagram"
+format: html
+editor: visual
+---
+
+## Set env
+
+```{r}
+
+ # to get errors/warnings in English
+Sys.setenv(LANG="en_EN.UTF-8")
+
+#####
+#optional block in case the package manager pacman is not installed yet
+#####
+# if(!requireNamespace("pacman",quietly = TRUE)){
+#   install.packages("pacman")
+# }
+
+#####
+#A small block I use if I need to spontaneously install and load a package
+#####
+
+
+#####
+# Actual package loading block I use in each script
+####
+pacman::p_load(
+  conflicted, # tests/solutions for name conflicts
+  tidyverse, # metapackage 
+  wrappedtools, # my own tools package
+  randomNames, # used to create pseudo names
+  ggplot2,
+  ggbeeswarm,
+  RColorBrewer,
+  paletteer,
+  igraph,
+  ggraph,
+  tidygraph,
+  readxl,
+  stringr,
+  usethis
+  )
+
+### Check for conflicts 
+conflict_scout()
+
+#####
+# resolve conflicts by choosing which package to prefer individual conflicting functions from. Since I am working with igraph a lot in this project, selected mostly the function variants from this package. Also, prefer the filter function from tidygraph in this instance for similar reasons.
+#####
+conflicts_prefer(tidygraph::filter,
+                 stats::lag,
+                 igraph::`%--%()`,
+                 igraph::as_data_frame,
+                 igraph::crossing,
+                 igraph::compose,
+                 igraph::decompose,
+                 igraph::simplify,
+                 igraph::spectrum,
+                 igraph::union,
+                 igraph::simplify,
+                 tidygraph::filter)
+
+#####
+# using git for version control
+#####
+use_git()
+
+RColorBrewer::display.brewer.all()
+```
+
+## Set default properties for code and plots
+
+```{r}
+#| include: false
+#| eval: false
+theme_set(theme_void(base_size=20)+theme(panel.background = element_rect(fill="white")))
+```
+
+## Import data into ggraph via a tibble, read in from Excel
+
+```{r}
+# Import the data
+qual_data <- read_xlsx("./Two-level_chord-data/Two-level_chord_Ioana.xlsx", col_names = TRUE, col_types=c("numeric", "text", "text"))
+View(qual_data)
+
+# Assemble a tibble with the from-to relationships
+nodes <- tibble(connection_ID=qual_data$Connection_ID, from=qual_data$Inner_circle,to=qual_data$Outer_circle)
+
+head(nodes)
+
+
+```
+
+## Create tibbles for properties of plot elements (nodes and edges)
+
+```{r}
+# Create a tibble of all of the unique nodes of the graph (both the inner circle and the outer circles need to be accounted for). We will need this for arranging and labeling the nodes later.
+node_properties <-tibble(
+    node_name=unique(
+    igraph::union(
+      unique(qual_data$Inner_circle),
+      unique(qual_data$Outer_circle))),
+    node_type = case_when(
+      node_name %in% qual_data$Inner_circle ~ "inner",node_name %in% qual_data$Outer_circle ~ "outer"
+  )
+  ) 
+
+# Create a column with an UID for each node
+node_properties <- node_properties %>%
+  mutate(
+    node_ID = row_number()
+    )
+
+head(node_properties)
+
+qual_edges <- nodes %>%
+  mutate(
+    from=nodes$from,
+    to=nodes$to
+  )
+```
+
+## Create components for node graph and properties for nodes and labels
+
+```{r}
+# Create a tibble graph (an igraph wrapper)
+qual_graph = as_tbl_graph(nodes)
+
+# Set the graph property "name" with V function from igraph
+V(qual_graph)$name <- node_properties$node_name
+
+# Create a wrapped version of the name for nicer display
+V(qual_graph)$wrapped_name <- str_wrap(V(qual_graph)$name, width = 40)
+
+# Set the graph property "circle" to indicate if nodes should be on inner or outer circle with V function from igraph
+V(qual_graph)$circle <- node_properties$node_type
+
+View(qual_graph)
+
+#save the total number of nodes
+num_nodes <- nrow(node_properties)
+num_nodes
+```
+
+## Layout variant that plots nodes on two concentric circles
+
+```{r}
+#create a custom layout function that also generates coordinates for nudging the labels of the nodes to the inside or outside later on. 
+two_circle_layout_nudged <- function(graph) {
+  layout <- matrix(0, nrow = vcount(graph), ncol = 2)
+  inner_nodes <- V(graph)[circle == "inner"]
+  outer_nodes <- V(graph)[circle == "outer"]
+
+  n_inner <- length(inner_nodes)
+  n_outer <- length(outer_nodes)
+
+  # Coordinates for inner circle
+  layout[inner_nodes, 1] <- cos(seq(0, 2*pi, length.out = n_inner + 1)[-1])
+  layout[inner_nodes, 2] <- sin(seq(0, 2*pi, length.out = n_inner + 1)[-1])
+
+  # Coordinates for outer circle
+  layout[outer_nodes, 1] <- 2 * cos(seq(0, 2*pi, length.out = n_outer + 1)[-1])
+  layout[outer_nodes, 2] <- 2 * sin(seq(0, 2*pi, length.out = n_outer + 1)[-1])
+
+#calculate a layout df that will be used to compute offset of labels
+  layout_df <- as.data.frame(layout)
+  colnames(layout_df) <- c("x", "y")
+  layout_df$name <- V(graph)$name
+  layout_df$circle <- V(graph)$circle
+
+  # Calculate nudge values for labels
+  layout_df <- layout_df %>%
+    mutate(nudge_x = ifelse(circle == "inner", -0.3 * cos(atan2(y, x)), 0.3 * cos(atan2(y, x))),
+           nudge_y = ifelse(circle == "inner", -0.3 * sin(atan2(y, x)), 0.3 * sin(atan2(y, x))))
+  
+  return(layout_df)
+}
+
+
+
+# create the custom layout using the postitioning function I just defined
+qual_layout <- two_circle_layout_nudged(qual_graph)
+
+
+# create the plot with ggraph and the newly generated layout
+qual_plot <- ggraph(qual_graph,
+                    layout = qual_layout)+
+  geom_edge_arc(
+    aes(edge_alpha = 0.1),
+    strength = 15) +
+  geom_node_point(
+  aes(color=circle),
+  size=5) +
+  geom_node_text(
+    aes(label=wrapped_name,
+        x = x+ nudge_x,
+        y = y + nudge_y),
+    size=2) +
+  theme(aspect.ratio = 1,
+        legend.position = "none") #+
+  #theme_update(plot.background = element_rect(fill="white", color=))
+
+qual_plot
+
+ggsave(filename = "./Two-level_chord-plots/two-level_chord_nudge.png",
+       plot = qual_plot,
+       width=40,height=40,
+       units="cm",
+       dpi=300)
+```
+
+## Layout variant that plots arcs strictly between the two circles
+
+```{r}
+# Import the data
+qual_data <- read_xlsx("./Two-level_chord-data/Two-level_chord_Ioana.xlsx", col_names = TRUE, col_types=c("numeric", "text", "text"))
+View(qual_data)
+
+# Assemble a tibble with the from-to relationships
+nodes <- tibble(connection_ID=qual_data$Connection_ID, from=qual_data$Inner_circle,to=qual_data$Outer_circle)
+
+head(nodes)
+
+# Create a tibble of all of the unique nodes of the graph (both the inner circle and the outer circles need to be accounted for). We will need this for arranging and labeling the nodes later.
+node_properties <-tibble(
+    node_name=unique(
+    igraph::union(
+      unique(qual_data$Inner_circle),
+      unique(qual_data$Outer_circle))),
+    node_type = case_when(
+      node_name %in% qual_data$Inner_circle ~ "inner",node_name %in% qual_data$Outer_circle ~ "outer"
+  )
+  ) 
+
+# Create a column with an UID for each node
+node_properties <- node_properties %>%
+  mutate(
+    node_ID = row_number()
+    )
+
+head(node_properties)
+
+qual_edges_2 <- nodes %>%
+  select(from, to)
+  
+
+qual_edges_2
+
+# Create a tibble graph (an igraph wrapper)
+qual_graph = graph_from_data_frame(d = qual_edges_2, vertices = nodes, directed = FALSE)
+
+# Set the graph property "name" with V function from igraph
+V(qual_graph)$name <- node_properties$node_name
+
+# Create a wrapped version of the name for nicer display
+V(qual_graph)$wrapped_name <- str_wrap(V(qual_graph)$name, width = 40)
+
+# Set the graph property "circle" to indicate if nodes should be on inner or outer circle with V function from igraph
+V(qual_graph)$circle <- node_properties$node_type
+
+View(qual_graph)
+
+#save the total number of nodes
+num_nodes <- nrow(node_properties)
+num_nodes
+
+# custom function to create a layout where data points align on two concentric circles
+two_circle_layout_sigmoid <- function(graph) {
+  layout <- matrix(0, nrow = vcount(graph), ncol = 2)
+  inner_nodes <- V(graph)[circle == "inner"]
+  outer_nodes <- V(graph)[circle == "outer"]
+
+  n_inner <- length(inner_nodes)
+  n_outer <- length(outer_nodes)
+
+  # Coordinates for inner circle
+  layout[inner_nodes, 1] <- cos(seq(0, 2*pi, length.out = n_inner + 1)[-1])
+  layout[inner_nodes, 2] <- sin(seq(0, 2*pi, length.out = n_inner + 1)[-1])
+
+  # Coordinates for outer circle
+  layout[outer_nodes, 1] <- 2 * cos(seq(0, 2*pi, length.out = n_outer + 1)[-1])
+  layout[outer_nodes, 2] <- 2 * sin(seq(0, 2*pi, length.out = n_outer + 1)[-1])
+
+  return(layout)
+}
+
+
+#calculate coordinates for the arched edges and make an edge dataframe containing them
+  sigmoid_edges <- function(layout, edges, inner_radius = 1, outer_radius = 2) {
+  custom_edges <- data.frame()
+  
+  for (i in 1:nrow(edges)) {
+    from_idx <- which(V(graph)$name == edges$from[i])
+    to_idx <- which(V(graph)$name == edges$to[i])
+    x_from <- layout[from_idx, 1]
+    y_from <- layout[from_idx, 2]
+    x_to <- layout[to_idx, 1]
+    y_to <- layout[to_idx, 2]
+
+    # Calculate midpoint avoiding the inner circle
+    mid_x <- (x_from + x_to) / 2
+    mid_y <- (y_from + y_to) / 2
+    mid_radius <- sqrt(mid_x^2 + mid_y^2)
+    if (mid_radius < inner_radius) {
+      mid_x <- mid_x * outer_radius / mid_radius
+      mid_y <- mid_y * outer_radius / mid_radius
+    }
+
+    edge_points <- data.frame(
+      x = c(x_from, mid_x, x_to),
+      y = c(y_from, mid_y, y_to),
+      edge_id = i
+    )
+    custom_edges <- rbind(custom_edges, edge_points)
+  }
+  return(custom_edges)
+}
+
+qual_layout_2 <- two_circle_layout_sigmoid(qual_graph)
+
+custom_qual_edges_2 <- sigmoid_edges(layout=qual_layout_2, edges=qual_edges_2)
+
+rlang::last_trace()
+```
+
+## 
