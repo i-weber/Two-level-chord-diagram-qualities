@@ -21,7 +21,7 @@ Sys.setenv(LANG="en_EN.UTF-8")
 #####
 #A small block I use if I need to spontaneously install and load a package
 #####
-
+pacman::p_load(gitcreds)
 
 #####
 # Actual package loading block I use in each script
@@ -40,7 +40,8 @@ pacman::p_load(
   tidygraph,
   readxl,
   stringr,
-  usethis
+  usethis,
+  gitcreds
   )
 
 ### Check for conflicts 
@@ -66,6 +67,10 @@ conflicts_prefer(tidygraph::filter,
 # using git for version control
 #####
 use_git()
+# create_github_token() # use when wanting to create a token
+# gitcreds_set() use when using a particular token
+use_github() # connet this particular project to a GitHub repo
+
 
 # this is my cue that the block has finished executing
 RColorBrewer::display.brewer.all()
