@@ -8,7 +8,7 @@ editor: visual
 
 ```{r}
 
- # to get errors/warnings in English
+# to get errors/warnings in English
 Sys.setenv(LANG="en_EN.UTF-8")
 
 #####
@@ -67,6 +67,7 @@ conflicts_prefer(tidygraph::filter,
 #####
 use_git()
 
+# this is my cue that the block has finished executing
 RColorBrewer::display.brewer.all()
 ```
 
@@ -83,7 +84,8 @@ theme_set(theme_void(base_size=20)+theme(panel.background = element_rect(fill="w
 ```{r}
 # Import the data
 qual_data <- read_xlsx("./Two-level_chord-data/Two-level_chord_Ioana.xlsx", col_names = TRUE, col_types=c("numeric", "text", "text"))
-View(qual_data)
+
+#View(qual_data) # un-comment if want to see underlying data
 
 # Assemble a tibble with the from-to relationships
 nodes <- tibble(connection_ID=qual_data$Connection_ID, from=qual_data$Inner_circle,to=qual_data$Outer_circle)
