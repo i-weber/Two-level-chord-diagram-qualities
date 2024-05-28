@@ -69,7 +69,7 @@ conflicts_prefer(tidygraph::filter,
 use_git()
 # create_github_token() # use when wanting to create a token
 # gitcreds_set() use when using a particular token
-use_github() # connet this particular project to a GitHub repo
+use_github() # connect this particular project to a GitHub repo
 
 
 # this is my cue that the block has finished executing
